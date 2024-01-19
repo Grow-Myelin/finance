@@ -1,66 +1,74 @@
-import sqlite3
 import requests
+import sqlite3
+from datetime import datetime
+
+# Constants
+API_KEY = '4420a6222235bae98530c607c4dd5626'
+FRED_INTEREST_RATE_SERIES = 'SP500'  # Example: 'DFF' for Federal Funds Effective Rate
+
 
 def create_table(table_name,conn,columns):
     # Create a table to store income statements with the specified columns
     column_definitions = ', '.join([f'"{col}" TEXT' for col in columns])
-    print(column_definitions)
+#    print(column_definitions)
     conn.execute(f'''
         CREATE TABLE IF NOT EXISTS {table_name} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT,
             {column_definitions}
         );
     ''')
 
-def fetch_and_insert_data(stock_ticker, api_key,report_link,from_date,to_date):
+def fetch_and_insert_data(api_key,report_link):
     # Create or connect to a SQLite database file
     conn = sqlite3.connect('finance_data.db')
 
     # Define the URL for the API endpoint
-#    url = f'https://financialmodelingprep.com/api/v3/financials/{report_link}/{stock_ticker}?limit=100&apikey={api_key}'
-    url = f'https://financialmodelingprep.com/api/v3/{report_link}/{stock_ticker}?limit=100&from={from_date}&to={to_date}&apikey={api_key}'
+    url = f'https://api.stlouisfed.org/fred/series/observations?series_id={report_link}&api_key={api_key}&file_type=json'
     # Send a GET request to the API
     response = requests.get(url)
     table_name = report_link.replace("-","_")
 #    print(table_name)
     if response.status_code == 200:
         # Parse the JSON response
-        data = response.json()
-        financial_statement = data
+        economic_data = response.json()['observations']
+
         
         # If there are no financial statements, return without creating the table
-        if not financial_statement:
-            print(f'No income statements found for {stock_ticker}.')
+        if not economic_data:
+            print(f'No data found for {report_link}.')
             conn.close()
             return
         
         # Extract columns from the first statement in the list
-        first_statement = financial_statement[0]
+#        print(economic_data)
+        first_statement = economic_data[0]
+#        print(first_statement)
         columns = list(first_statement.keys())
 #        print(columns)
         
         # Create the income statement table with dynamic columns
         create_table(table_name,conn, columns)
-        
+#        print(economic_data['observations'])
         # Insert data into the database
-        for statement in financial_statement:
+        for statement in economic_data:
+#            print(statement)
             # Prepare placeholders for column values
-            placeholders = ', '.join(['?'] * (len(columns) + 1))
-            column_names = ', '.join(['ticker'] + ['"' + col + '"' for col in columns])
+            placeholders = ', '.join(['?'] * (len(columns)))
+            column_names = ', '.join(['"' + col + '"' for col in columns])
             
             # Extract values from the statement dictionary
-            values = [stock_ticker] + [statement.get(col, None) for col in columns]            
-#            print(values)
-            existing_row = conn.execute(f'SELECT 1 FROM {table_name} WHERE date = ? and ticker = ?', (statement['date'],stock_ticker)).fetchone()
-            if not existing_row:
+            values = [statement.get(col, None) for col in columns]            
+            print(values)
+#            existing_row = conn.execute(f'SELECT 1 FROM {table_name} WHERE date = ?', (statement['date'])).fetchone()
+
+#            if not existing_row:
             # Insert data into the database
-                conn.execute(f'''
-                    INSERT INTO {table_name} (
-                        {column_names}
-                    )
-                    VALUES ({placeholders});
-                ''', values)
+            conn.execute(f'''
+                INSERT INTO {table_name} (
+                    {column_names}
+                )
+                VALUES ({placeholders});
+            ''', values)
         
         # Commit the changes to the database
         conn.commit()
@@ -72,6 +80,4 @@ def fetch_and_insert_data(stock_ticker, api_key,report_link,from_date,to_date):
     # Close the database connection when done
     conn.close()
 
-stocks = ['DAL','AAPL','GOOG']
-for stock in stocks:
-    fetch_and_insert_data(stock,'8OO4wYIUqQjhpDYin5xtmHDkaRuc12Di','cash-flow-statement','2018-01-01','2024-01-01')
+fetch_and_insert_data(API_KEY,FRED_INTEREST_RATE_SERIES)
